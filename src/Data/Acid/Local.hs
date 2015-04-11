@@ -151,6 +151,7 @@ createCheckpointAndClose abstract_state
               pushAction (localEvents acidState) $
                 pushEntry (localCheckpoints acidState) (Checkpoint eventId (runPutLazy (safePut st))) (putMVar mvar ())
          takeMVar mvar
+         cutFileLog (localEvents acidState)
          closeFileLog (localEvents acidState)
          closeFileLog (localCheckpoints acidState)
          releasePrefixLock (localLock acidState)
