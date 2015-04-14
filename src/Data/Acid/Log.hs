@@ -17,6 +17,7 @@ module Data.Acid.Log
     , newestEntry
     , askCurrentEntryId
     , cutFileLog
+    , schedualCutFileLog
     , archiveFileLog
     ) where
 
@@ -274,7 +275,10 @@ getNextDurableEntryId fLog  = atomically $ do
   return (next - length entries)
 
 cutFileLog :: FileLog object -> IO EntryId
-cutFileLog fLog = do
+cutFileLog fLog = schedualCutFileLog fLog >>= takeMVar
+
+schedualCutFileLog :: FileLog object -> IO (MVar EntryId)
+schedualCutFileLog fLog = do
   mvar <- newEmptyMVar
   let action = do currentEntryId <- getNextDurableEntryId fLog
                   modifyMVar_ (logCurrent fLog) $ \old ->
@@ -282,7 +286,7 @@ cutFileLog fLog = do
                        open (logDirectory key </> formatLogFile (logPrefix key) currentEntryId)
                   putMVar mvar currentEntryId
   pushAction fLog action
-  takeMVar mvar
+  return mvar
  where
   key = logIdentifier fLog
 

@@ -18,6 +18,7 @@ module Data.Acid.Local
     , prepareLocalState
     , prepareLocalStateFrom
     , createCheckpointAndClose
+    , cutStateEventsLog
     ) where
 
 import Data.Acid.Log as Log
@@ -157,6 +158,10 @@ createCheckpointAndClose abstract_state
          releasePrefixLock (localLock acidState)
   where acidState = downcast abstract_state
 
+cutStateEventsLog :: (SafeCopy st, Typeable st) => AcidState st -> IO ()
+cutStateEventsLog abstract_state =
+  Log.schedualCutFileLog (localEvents acidState) >> return ()
+  where acidState = downcast abstract_state
 
 data Checkpoint = Checkpoint EntryId ByteString
 
