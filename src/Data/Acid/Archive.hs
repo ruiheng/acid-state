@@ -1,4 +1,5 @@
 {-# LANGUAGE DoAndIfThenElse #-}
+{-# LANGUAGE CPP #-}
 {-
 Format:
  |content length| crc16   | content |
@@ -19,7 +20,12 @@ import           Data.Acid.CRC
 import qualified Data.ByteString        as Strict
 import qualified Data.ByteString.Lazy   as Lazy
 import           Data.Monoid
+#if MIN_VERSION_cereal(0,5,0)
+import           Data.ByteString.Builder
+import           Data.Serialize.Put
+#else
 import           Data.Serialize.Builder
+#endif
 import           Data.Serialize.Get     hiding (Result (..))
 import qualified Data.Serialize.Get     as Serialize
 
@@ -39,9 +45,16 @@ entriesToListNoFail Fail{}            = []
 
 putEntry :: Entry -> Builder
 putEntry content
+#if MIN_VERSION_cereal(0,5,0)
+    = word64LE contentLength `mappend`
+      word16LE contentHash `mappend`
+      lazyByteString
+      content
+#else
     = putWord64le contentLength `mappend`
       putWord16le contentHash `mappend`
       fromLazyByteString content
+#endif
     where contentLength = fromIntegral $ Lazy.length content
           contentHash   = crc16 content
 
