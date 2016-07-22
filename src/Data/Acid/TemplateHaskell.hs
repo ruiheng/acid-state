@@ -11,6 +11,7 @@ import Data.Acid.Core
 import Data.Acid.Common
 
 import Data.List ((\\), nub)
+import Data.Maybe (mapMaybe)
 import Data.SafeCopy
 import Data.Typeable
 import Data.Char
@@ -47,9 +48,17 @@ makeAcidic stateName eventNames
          case stateInfo of
            TyConI tycon
              ->case tycon of
+#if MIN_VERSION_template_haskell(2,11,0)
+                 DataD _cxt _name tyvars _kind constructors _derivs
+#else
                  DataD _cxt _name tyvars constructors _derivs
+#endif
                    -> makeAcidic' eventNames stateName tyvars constructors
+#if MIN_VERSION_template_haskell(2,11,0)
+                 NewtypeD _cxt _name tyvars _kind constructor _derivs
+#else
                  NewtypeD _cxt _name tyvars constructor _derivs
+#endif
                    -> makeAcidic' eventNames stateName tyvars [constructor]
                  TySynD _name tyvars _ty
                    -> makeAcidic' eventNames stateName tyvars []
@@ -75,7 +84,11 @@ getEventType :: Name -> Q Type
 getEventType eventName
     = do eventInfo <- reify eventName
          case eventInfo of
+#if MIN_VERSION_template_haskell(2,11,0)
+           VarI _name eventType _decl
+#else
            VarI _name eventType _decl _fixity
+#endif
              -> return eventType
            _ -> error $ "Events must be functions: " ++ show eventName
 
@@ -91,7 +104,7 @@ makeIsAcidic eventNames stateName tyvars constructors
          cxts' <- mkCxtFromTyVars preds tyvars cxtFromEvents
          instanceD (return cxts') ty
                    [ valD (varP 'acidEvents) (normalB (listE handlers)) [] ]
-    where stateType = foldl appT (conT stateName) [ varT var | PlainTV var <- tyvars ]
+    where stateType = foldl appT (conT stateName) (map varT (allTyVarBndrNames tyvars))
 
 -- | This function analyses an event function and extracts any
 -- additional class contexts which need to be added to the IsAcidic
@@ -213,9 +226,19 @@ makeEventHandler eventName eventType
 --  deriving (Typeable)
 makeEventDataType eventName eventType
     = do let con = normalC eventStructName [ strictType notStrict (return arg) | arg <- args ]
+#if MIN_VERSION_template_haskell(2,11,0)
+             cxt = mapM conT [''Typeable]
+#else
+             cxt = [''Typeable]
+#endif
          case args of
-          [_] -> newtypeD (return []) eventStructName tyvars con [''Typeable]
-          _   -> dataD (return []) eventStructName tyvars [con] [''Typeable]
+#if MIN_VERSION_template_haskell(2,11,0)
+          [_] -> newtypeD (return []) eventStructName tyvars Nothing con cxt
+          _   -> dataD (return []) eventStructName tyvars Nothing [con] cxt
+#else
+          [_] -> newtypeD (return []) eventStructName tyvars con cxt
+          _   -> dataD (return []) eventStructName tyvars [con] cxt
+#endif
     where (tyvars, _cxt, args, _stateType, _resultType, _isUpdate) = analyseType eventName eventType
           eventStructName = mkName (structName (nameBase eventName))
           structName [] = []
@@ -226,7 +249,7 @@ makeEventDataType eventName eventType
 --    get = MyUpdateEvent <$> get <*> get
 makeSafeCopyInstance eventName eventType
     = do let preds = [ ''SafeCopy ]
-             ty = AppT (ConT ''SafeCopy) (foldl AppT (ConT eventStructName) [ VarT tyvar | PlainTV tyvar <- tyvars ])
+             ty = AppT (ConT ''SafeCopy) (foldl AppT (ConT eventStructName) (map VarT (allTyVarBndrNames tyvars)))
 
              getBase = appE (varE 'return) (conE eventStructName)
              getArgs = foldl (\a b -> infixE (Just a) (varE '(<*>)) (Just (varE 'safeGet))) getBase args
@@ -248,7 +271,7 @@ makeSafeCopyInstance eventName eventType
           structName (x:xs) = toUpper x : xs
 
 mkCxtFromTyVars preds tyvars extraContext
-    = cxt $ [ classP classPred [varT tyvar] | PlainTV tyvar <- tyvars, classPred <- preds ] ++
+    = cxt $ [ classP classPred [varT tyvar] | tyvar <- allTyVarBndrNames tyvars, classPred <- preds ] ++
             map return extraContext
 
 {-
@@ -259,9 +282,9 @@ instance (SafeCopy key, Typeable key
 -}
 makeMethodInstance eventName eventType
     = do let preds = [ ''SafeCopy, ''Typeable ]
-             ty = AppT (ConT ''Method) (foldl AppT (ConT eventStructName) [ VarT tyvar | PlainTV tyvar <- tyvars ])
-             structType = foldl appT (conT eventStructName) [ varT tyvar | PlainTV tyvar <- tyvars ]
-         instanceD (cxt $ [ classP classPred [varT tyvar] | PlainTV tyvar <- tyvars, classPred <- preds ] ++ map return context)
+             ty = AppT (ConT ''Method) (foldl AppT (ConT eventStructName) (map VarT (allTyVarBndrNames tyvars)))
+             structType = foldl appT (conT eventStructName) (map varT (allTyVarBndrNames tyvars))
+         instanceD (cxt $ [ classP classPred [varT tyvar] | tyvar <- allTyVarBndrNames tyvars, classPred <- preds ] ++ map return context)
                    (return ty)
 #if __GLASGOW_HASKELL__ >= 707
                    [ tySynInstD ''MethodResult (tySynEqn [structType] (return resultType))
@@ -281,8 +304,8 @@ makeMethodInstance eventName eventType
 makeEventInstance eventName eventType
     = do let preds = [ ''SafeCopy, ''Typeable ]
              eventClass = if isUpdate then ''UpdateEvent else ''QueryEvent
-             ty = AppT (ConT eventClass) (foldl AppT (ConT eventStructName) [ VarT tyvar | PlainTV tyvar <- tyvars ])
-         instanceD (cxt $ [ classP classPred [varT tyvar] | PlainTV tyvar <- tyvars, classPred <- preds ] ++ map return context)
+             ty = AppT (ConT eventClass) (foldl AppT (ConT eventStructName) (map VarT (allTyVarBndrNames tyvars)))
+         instanceD (cxt $ [ classP classPred [varT tyvar] | tyvar <- allTyVarBndrNames tyvars, classPred <- preds ] ++ map return context)
                    (return ty)
                    []
     where (tyvars, context, _args, _stateType, _resultType, isUpdate) = analyseType eventName eventType
@@ -327,3 +350,6 @@ findTyVars _          = []
 tyVarBndrName :: TyVarBndr -> Name
 tyVarBndrName (PlainTV n)    = n
 tyVarBndrName (KindedTV n _) = n
+
+allTyVarBndrNames :: [TyVarBndr] -> [Name]
+allTyVarBndrNames tyvars = map tyVarBndrName tyvars

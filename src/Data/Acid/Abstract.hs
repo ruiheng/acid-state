@@ -35,21 +35,20 @@ data AnyState st where
 {-| State container offering full ACID (Atomicity, Consistency, Isolation and Durability)
     guarantees.
 
-    [@Atomicity@]  State changes are all-or-nothing. This is what you'd expect of any state
-                   variable in Haskell and AcidState doesn't change that.
-
+    [@Atomicity@]   State changes are all-or-nothing. This is what you'd expect
+                    of any state variable in Haskell and AcidState doesn't
+                    change that.
     [@Consistency@] No event or set of events will break your data invariants.
-
-    [@Isolation@] Transactions cannot interfere with each other even when issued in parallel.
-
-    [@Durability@] Successful transaction are guaranteed to survive unexpected system shutdowns
-                   (both those caused by hardware and software).
+    [@Isolation@]   Transactions cannot interfere with each other even when
+                    issued in parallel.
+    [@Durability@]  Successful transaction are guaranteed to survive unexpected
+                    system shutdowns (both those caused by hardware and software).
 -}
 data AcidState st
   = AcidState {
                 _scheduleUpdate :: forall event. (UpdateEvent event, EventState event ~ st) => event -> IO (MVar (EventResult event))
               , scheduleColdUpdate :: Tagged ByteString -> IO (MVar ByteString)
-              , _query :: (QueryEvent event, EventState event ~ st)  => event -> IO (EventResult event)
+              , _query :: forall event. (QueryEvent event, EventState event ~ st) => event -> IO (EventResult event)
               , queryCold :: Tagged ByteString -> IO ByteString
               ,
 -- | Take a snapshot of the state and save it to disk. Creating checkpoints

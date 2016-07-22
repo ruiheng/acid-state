@@ -18,8 +18,8 @@ import           Data.Acid.CRC
 
 import qualified Data.ByteString        as Strict
 import qualified Data.ByteString.Lazy   as Lazy
+import           Data.ByteString.Builder
 import           Data.Monoid
-import           Data.Serialize.Builder
 import           Data.Serialize.Get     hiding (Result (..))
 import qualified Data.Serialize.Get     as Serialize
 
@@ -39,11 +39,12 @@ entriesToListNoFail Fail{}            = []
 
 putEntry :: Entry -> Builder
 putEntry content
-    = putWord64le contentLength `mappend`
-      putWord16le contentHash `mappend`
-      fromLazyByteString content
+    = word64LE contentLength !<>
+      word16LE contentHash !<>
+      lazyByteString content
     where contentLength = fromIntegral $ Lazy.length content
           contentHash   = crc16 content
+          a !<> b = let c = a <> b in c `seq` c
 
 putEntries :: [Entry] -> Builder
 putEntries = mconcat . map putEntry
